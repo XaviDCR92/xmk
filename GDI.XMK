@@ -1,0 +1,52 @@
+# Example file
+build gdi.exe
+
+define CC as tcc
+define CC_FLAGS as -c
+define CC_INS as "$CC $(dep[0]) $CC_FLAGS -o $(target) -Wall"
+define LD_INS as "$CC -o $(target)"
+
+target gdi.exe {
+	depends on {
+		gdi.o
+		keyword_list.o
+		parser.o
+	}
+
+	created using {
+		$LD_INS $(dep[0]) $(dep[1]) $(dep[2])
+	}
+}
+
+target gdi.o {
+	depends on {
+		gdi.c
+	}
+
+	created using{
+		$CC_INS
+	}
+}
+
+target parser.o {
+	depends on {
+		parser.c
+		lengthof.h
+	}
+
+	created using {
+		$CC_INS
+	}
+}
+
+target keyword_list.o {
+	depends on {
+		keyword_list.c
+		keyword_list.h
+		lengthof.h
+	}
+
+	created using {
+		$CC_INS
+	}
+}
