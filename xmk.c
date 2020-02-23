@@ -78,12 +78,15 @@
 		}									\
 	} while (0)
 
-#define FATAL_ERROR(str, ...)											\
-	do																	\
-	{																	\
-		fprintf(stderr, "Fatal error at line %d: " str ".\r\n", line, __VA_ARGS__);	\
-		cleanup();														\
-		exit(1);															\
+#define FATAL_ERROR(str, ...)												\
+	do																		\
+	{																		\
+		if (line)																\
+			fprintf(stderr, "Fatal error at line %d: " str ".\r\n", line, __VA_ARGS__);	\
+		else																\
+			fprintf(stderr, "Fatal error: " str ".\r\n", __VA_ARGS__);				\
+		cleanup();															\
+		exit(1);																\
 	} while (0)
 
 #define foreach(type, iter, list)							\
@@ -144,7 +147,7 @@ typedef struct
 static char *build_target;
 static char *current_scope;
 char *file_buffer;
-static size_t line = 1;
+static size_t line;
 
 /* Definitions store data pairs, so default 
  * SyntaxRule behaviour cannot be used here. */
@@ -174,7 +177,7 @@ static const char *get_extension(const char *word);
 static const char *get_dependency(const char *word);
 bool is_define(const char *name);
 char *expand_define(char *const buffer, const char *word);
-static bool check_rule(SyntaxRule *const rule, const char *word, enum ParseState* const state, bool* const newline_detected);
+static bool check_rule(SyntaxRule *rule, const char *word, enum ParseState *state, bool *newline_detected);
 static void add_symbol(SyntaxRule *rule, const char *word);
 static void set_build_target(const char *target);
 static void add_target(const char *target);
@@ -186,7 +189,7 @@ static bool scope(SyntaxRule *rule, const char *word, enum ParseState *state, bo
 static bool handle_list(	SyntaxRule* rule,
 					const char *word,
 					enum ParseState* state,
-					bool* newline_detected,
+					bool newline_detected,
 					bool* finished);
 enum ParseState created_using_scope_block_opened(void);
 static int execute_commands(const char *target, bool *parent_update_pending);
@@ -386,7 +389,7 @@ static SupportedArg supported_args[] =
 	}
 };
 
-int main(const int argv, char *const argc[])
+int main(const int argv, const char *const argc[])
 {
 	if (!parse_arguments(argv, argc))
 	{
@@ -414,7 +417,7 @@ static int exec(const struct Config* const config)
 				{
 					/* Calculate file size. */
 					const size_t sz = ftell(f);
-					file_buffer = calloc(sz + 1, sizeof *file_buffer);
+					file_buffer = malloc((sz + 1) * sizeof *file_buffer);
 
 					/* Return to initial position. */
 					rewind(f);
@@ -432,13 +435,16 @@ static int exec(const struct Config* const config)
 							/* File contents were read succesfully. */
 							LOGV("File %s was opened successfully", path);
 
+							file_buffer[sz] = '\0';
+							line = 1;
+
 							return parse_file(read_bytes);
 						}
 						else
 						{
 							FATAL_ERROR("Could not read %s succesfully. "
 											"Only %d/%d bytes could be read",
-											config->path, read_bytes, sz);
+											path, read_bytes, sz);
 						}
 					}
 					else
@@ -452,7 +458,7 @@ static int exec(const struct Config* const config)
 			}
 			else
 			{
-				FATAL_ERROR("Input file %s could not be opened", config->path);
+				FATAL_ERROR("Input file %s could not be opened", path);
 			}
 		}
 		else
@@ -682,7 +688,7 @@ static int check_syntax(const size_t sz)
 	return 0;
 }
 
-static const char *get_word(char *const buffer, size_t *const from, bool* const newline_detected)
+static const char *get_word(char *buffer, size_t *const from, bool* const newline_detected)
 {
 	if (buffer && from && newline_detected)
 	{
@@ -869,7 +875,7 @@ char *expand_define(char *const buffer, const char const *word)
 		const size_t after_length = strlen(after);
 
 		/* Create a temporary copy where data after define value will be stored. */
-		char *const after_temp = calloc(after_length + 1, sizeof *after_temp);
+		char *const after_temp = malloc((after_length + 1) * sizeof *after_temp);
 
 		if (after_temp)
 		{
@@ -877,19 +883,11 @@ char *expand_define(char *const buffer, const char const *word)
 			const size_t value_length = strlen(value);
 			const size_t new_length = before_length + value_length + after_length;
 
-			LOGVV("before_length: %d", before_length);
-			LOGVV("value_length: %d", value_length);
-			LOGVV("after_length: %d", after_length);
-			LOGVV("Previous length: %d, new length: %d", strlen(file_buffer), new_length);
-
 			/* Dump into temporary buffer. */
 			strcpy(after_temp, after);
 
-			/* Realocate the newly expanded buffer. */
+			/* Reallocate the newly expanded buffer. */
 			file_buffer = realloc(file_buffer, new_length * sizeof *file_buffer);
-
-			LOGVV("New file size: %u bytes", new_length * sizeof *file_buffer);
-			LOGVV("value = %s", value);
 
 			if (file_buffer)
 			{
@@ -1191,7 +1189,7 @@ static bool check_rule(SyntaxRule *const rule, const char *const word, enum Pars
 				{
 					bool finished;
 
-					if (handle_list(rule, word, state, newline_detected, &finished))
+					if (handle_list(rule, word, state, *newline_detected, &finished))
 					{
 						return true;
 					}
@@ -1494,7 +1492,7 @@ static bool scope(SyntaxRule *const rule, const char *const word, enum ParseStat
 static bool handle_list(	SyntaxRule *const rule,
 					const char *const word,
 					enum ParseState* const state,
-					bool* const newline_detected,
+					const bool newline_detected,
 					bool* const finished)
 {
 	const size_t current_target = *syntax_rules[TARGET].list_size - 1;
@@ -1509,16 +1507,16 @@ static bool handle_list(	SyntaxRule *const rule,
 	/* This point is reached when no scope blocks are found. */
 	if (!rule->list)
 	{
-		rule->list = calloc(1, sizeof *rule->list);
+		rule->list = malloc(sizeof *rule->list);
 
 		if (rule->list && rule->list_size)
 		{
-			*rule->list = calloc(1, sizeof **rule->list);
+			*rule->list = malloc(sizeof **rule->list);
 
 			if (*rule->list)
 			{
 				const size_t length = strlen(word) + 1;
-				**rule->list = calloc(length, sizeof ***rule->list);
+				**rule->list = malloc(length * sizeof ***rule->list);
 	
 				if (**rule->list)
 				{
@@ -1531,13 +1529,13 @@ static bool handle_list(	SyntaxRule *const rule,
 	}
 	else if (!rule->list[current_target])
 	{
-		rule->list[current_target] = calloc(1, sizeof **rule->list);
+		rule->list[current_target] = malloc(sizeof **rule->list);
 
 		if (rule->list[current_target])
 		{
 			const size_t length = sizeof (**(rule->list[current_target])) * (strlen(word) + 1);
 
-			*(rule->list[current_target]) = calloc(length, sizeof **(rule->list[current_target]));
+			*(rule->list[current_target]) = malloc(length * sizeof **(rule->list[current_target]));
 
 			if (*(rule->list[current_target]))
 			{
@@ -1548,7 +1546,7 @@ static bool handle_list(	SyntaxRule *const rule,
 			}
 		}
 	}
-	else if (*newline_detected)
+	else if (newline_detected)
 	{
 		const size_t new_length = ++(rule->list_size[current_target]);
 		rule->list[current_target] = realloc(	rule->list[current_target], 
@@ -1576,7 +1574,7 @@ static bool handle_list(	SyntaxRule *const rule,
 		if (!*str)
 		{
 			const size_t length = strlen(word) + 1;
-			*str = calloc(length, sizeof **str);
+			*str = malloc(length * sizeof **str);
 
 			if (*str)
 			{
@@ -1668,6 +1666,13 @@ static int ex_build_target(const char *const build_target, const size_t target_i
 
 		LOGV("%d commands have been defined for target \"%s\"", n_commands, build_target);
 
+		for (size_t i = 0; i < n_commands; i++)
+		{
+			const char *const command =  syntax_rules[CREATED_USING].list[target_idx][i];
+			LOGV("\tCommand %d=\"%s\"(0x%p)", 
+					i, command, command);
+		}
+
 		if (!file_exists(build_target))
 		{
 			update_pending = true;
@@ -1719,74 +1724,61 @@ static int ex_build_target(const char *const build_target, const size_t target_i
 
 		LOGV("Target \"%s\" must be built", build_target);
 
-		for (size_t j = 0; j < target_commands; j++)
+		for (size_t i = 0; i < target_commands; i++)
 		{
-			char *const command = syntax_rules[CREATED_USING].list[target_idx][j];
+			char *const command = syntax_rules[CREATED_USING].list[target_idx][i];
 
 			if (command)
 			{
-				static const char cmd[] = "command.com /c ";
-				const size_t final_length = strlen(command) + STATIC_STRLEN(cmd) + 1;
-				char *const final_command = calloc(final_length, sizeof *final_command);
+				int error_code;
+				STARTUPINFOA startup_info = {.cb = sizeof startup_info};
+				PROCESS_INFORMATION process_info = {0};
+				DWORD exit_code = 0;
 
-				if (final_command)
+				if (!config.quiet)
 				{
-					int error_code;
-					STARTUPINFOA startup_info = {0};
-					PROCESS_INFORMATION process_info = {0};
-					DWORD exit_code;
+					/* Print resulting command. */
+					printf("%s\r\n", command);
+				}
 
-					startup_info.cb = sizeof startup_info;
-
-					if (!config.quiet)
-					{
-						/* Print resulting command. */
-						printf("%s\r\n", command);
-					}
-
-					strcat(final_command, cmd);
-					strcat(final_command, command);
-	
-					if (CreateProcessA
-					(
-						NULL, /*lpApplicationName*/
-						final_command, /* lpCommandLine */
-						NULL, /*lpProcessAttributes */
-						NULL, /*lpThreadAttributes */
-						false, /*bInheritHandles */
-						0, /* dwCreationFlags*/
-						NULL, /* lpEnvironment */
-						NULL, /* lpCurrentDirectory */
-						&startup_info, /*lpStartupInfo */
-						&process_info /* lpProcessInformation */
-					))
-					{
-						WaitForSingleObject(process_info.hProcess, INFINITE);
-						GetExitCodeProcess(process_info.hProcess, &exit_code);
-					}
-					else
-					{
-						exit_code = GetLastError();
-					}
-
-					free(final_command);
-					CloseHandle(startup_info.hStdInput);
-					CloseHandle(startup_info.hStdOutput);
-					CloseHandle(startup_info.hStdError);
-					CloseHandle(process_info.hProcess);
-					CloseHandle(process_info.hThread);
-	
-					free(command);
-	
-					if (exit_code)
-					{
-						FATAL_ERROR("Error [%d]", exit_code);
-					}
+				if (CreateProcessA
+				(
+					NULL, /*lpApplicationName*/
+					command, /* lpCommandLine */
+					NULL, /*lpProcessAttributes */
+					NULL, /*lpThreadAttributes */
+					false, /*bInheritHandles */
+					0, /* dwCreationFlags*/
+					NULL, /* lpEnvironment */
+					NULL, /* lpCurrentDirectory */
+					&startup_info, /*lpStartupInfo */
+					&process_info /* lpProcessInformation */
+				))
+				{
+					WaitForSingleObject(process_info.hProcess, INFINITE);
+					GetExitCodeProcess(process_info.hProcess, &exit_code);
 				}
 				else
 				{
-					FATAL_ERROR("%s", "Could not prepare command due to insufficient memory");
+					exit_code = GetLastError();
 				}
+
+				CloseHandle(startup_info.hStdInput);
+				CloseHandle(startup_info.hStdOutput);
+				CloseHandle(startup_info.hStdError);
+				CloseHandle(process_info.hProcess);
+				CloseHandle(process_info.hThread);
+
+				free(command);
+
+				if (exit_code)
+				{
+					FATAL_ERROR("Error [%d]", exit_code);
+				}
+			}
+			else
+			{
+				FATAL_ERROR("Command %d for target %d is empty", i, target_idx);
 			}
 		}
 
