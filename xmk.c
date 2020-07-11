@@ -1,4 +1,5 @@
-/* xmk, an automated build tool
+/*
+* xmk, an automated build tool
 *
 * 2019 - 2020 Xavier Del Campo Romero <xavi.dcr@tutanota.com>
 *
@@ -31,7 +32,7 @@
 #endif
 
 #define APP_NAME "xmk"
-#define AUTHOR "Xavier Del Campo Romero"
+#define AUTHORS "Xavier Del Campo Romero"
 #define DEFAULT_FILE_NAME "default.xmk"
 
 #if defined(typeof) && (__STDC_VERSION__ >= 201112L)
@@ -148,11 +149,11 @@ static void create_basic_tree(syntax_rule* dep_rule);
 enum parse_state target_scope_block_opened(void);
 enum parse_state depends_on_scope_block_opened(void);
 static bool scope(syntax_rule *rule, const char *word, enum parse_state *state, bool *finished);
-static bool handle_list(	syntax_rule* rule,
-                    const char *word,
-                    enum parse_state* state,
-                    bool newline_detected,
-                    bool* finished);
+static bool handle_list(syntax_rule* rule,
+                        const char *word,
+                        enum parse_state* state,
+                        bool newline_detected,
+                        bool* finished);
 enum parse_state created_using_scope_block_opened(void);
 static int execute_commands(const char *target, bool *parent_update_pending);
 static int ex_build_target(const char *build_target, size_t target_idx, bool *parent_update_pending);
@@ -500,7 +501,7 @@ static void help(void)
         printf("%s\t%s\n", arg->arg, arg->description);
     }
 
-    printf("Written by %s, build date: %s %s\n", AUTHOR, __DATE__, __TIME__);
+    printf("Written by %s, build date: %s %s\n", AUTHORS, __DATE__, __TIME__);
     exit(0);
 }
 
@@ -1470,11 +1471,11 @@ static bool scope(syntax_rule *const rule, const char *const word, enum parse_st
     return false;
 }
 
-static bool handle_list(	syntax_rule *const rule,
-                    const char *const word,
-                    enum parse_state* const state,
-                    const bool newline_detected,
-                    bool* const finished)
+static bool handle_list(syntax_rule *const rule,
+                        const char *const word,
+                        enum parse_state* const state,
+                        const bool newline_detected,
+                        bool* const finished)
 {
     const size_t current_target = *syntax_rules[TARGET].list_size - 1;
 
@@ -1908,36 +1909,50 @@ static bool target_exists(const char *const target, size_t *const index)
     return false;
 }
 
+static void cleanup_list(syntax_rule *const rule)
+{
+    if (rule->list_size && rule->list)
+    {
+        const size_t n = *rule->list_size;
+
+        for (size_t i = 0; i < n; i++)
+        {
+            if (rule->list[i])
+            {
+                if (*rule->list[i])
+                {
+                    free(*rule->list[i]);
+                }
+
+                free(rule->list[i]);
+            }
+        }
+
+        free(rule->list);
+        free(rule->list_size);
+    }
+}
+
 static void cleanup(void)
 {
-    return;
-    for (enum rule r = 0; r < LENGTHOF(syntax_rules); r++)
+    cleanup_list(&syntax_rules[CREATED_USING]);
+    cleanup_list(&syntax_rules[DEPENDS_ON]);
+
     {
-        if (syntax_rules[r].list_size)
+        syntax_rule *const targets = &syntax_rules[TARGET];
+
+        if (targets->list_size && targets->list)
         {
-            const size_t n = *syntax_rules[r].list_size;
-
-            foreach (syntax_rule, rule, syntax_rules)
+            for (size_t i = 0; i < *targets->list_size; i++)
             {
-                if (rule->list_size && rule->list)
+                if ((*targets->list)[i])
                 {
-                    for (size_t i = 0; i < n; i++)
-                    {
-                        if (rule->list[i])
-                        {
-                            if (*rule->list[i])
-                            {
-                                free(*rule->list[i]);
-                            }
-
-                            free(rule->list[i]);
-                        }
-                    }
-
-                    free(rule->list);
-                    free(rule->list_size);
+                    free((*targets->list)[i]);
                 }
             }
+
+            free(*targets->list);
+            free(targets->list_size);
         }
     }
 
